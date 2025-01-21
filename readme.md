@@ -100,17 +100,61 @@ proyecto/
 ├── Core/
 │   ├── Inc/                 # Archivos de cabecera (.h)
 │   │   ├── main.h
-│   │   ├── gpio.h
-│   │   └── usart.h
+│   │   ├── state_mahine.h
+│   │   └── button.h
 │   └── Src/                 # Archivos fuente (.c)
 │       ├── main.c
-│       ├── gpio.c
-│       └── usart.c
+│       ├── state_machine.c
+│       └── button.c
 ├── Drivers/                 # Drivers HAL y CMSIS
 └── .project                 # Archivos de configuración IDE
 ```
 
-### 2.2 Implementación de la Máquina de Estados
+### 2.2 Implementación del driver de boton
+
+Crea un nuevo archivo `button.h` en `Core/Inc/`:
+```c
+#ifndef __BUTTON_H_
+#define __BUTTON_H_
+
+#include <stdint.h>
+
+uint8_t button_driver_get_event(void);
+void detect_button_press(void);
+
+#endif // __BUTTON_H_
+
+```
+
+Crea `button.c` en `Core/Src/`:
+
+```c
+#include "button.h"
+#include "main.h"
+
+volatile uint8_t button_pressed = 0;
+uint32_t b1_tick = 0;
+
+uint8_t button_driver_get_event(void) {
+    uint8_t event = button_pressed;
+    button_pressed = 0;
+    return event;
+}
+
+void detect_button_press(void) {
+    if (HAL_GetTick() - b1_tick < 50) {
+        return; // Ignore bounces less than 50ms
+    } else if (HAL_GetTick() - b1_tick > 500) {
+        button_pressed = 1; // single press
+    } else {
+        button_pressed = 2; // double press
+    }
+    b1_tick = HAL_GetTick();
+}
+
+```
+
+### 2.3 Implementación de la Máquina de Estados
 
 Crea un nuevo archivo `state_machine.h` en `Core/Inc/`:
 
@@ -137,6 +181,7 @@ void run_state_machine(void);
 uint8_t button_driver_get_event(void);
 
 #endif
+
 ```
 
 Crea `state_machine.c` en `Core/Src/`:
@@ -149,27 +194,27 @@ Crea `state_machine.c` en `Core/Src/`:
 
 static state_t current_state = LOCKED;
 static uint32_t unlock_timer = 0;
-volatile uint8_t button_pressed = 0;
-uint32_t b1_tick = 0;
+
+extern UART_HandleTypeDef huart2;
 
 void handle_event(uint8_t event) {
     if (event == 1) { // Single press
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Single press\r\n", 13, 100);
-        HAL_GPIO_WritePin(DOOR_LED_GPIO_Port, DOOR_LED_Pin, GPIO_PIN_SET);
+        HAL_UART_Transmit(&huart2, (uint8_t*)"Single press\r\n", 14, 100);
+        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
         current_state = TEMP_UNLOCK;
         unlock_timer = HAL_GetTick();
     } else if (event == 2) { // Double press
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Double press\r\n", 13, 100);
-        HAL_GPIO_WritePin(DOOR_LED_GPIO_Port, DOOR_LED_Pin, GPIO_PIN_SET);
+        HAL_UART_Transmit(&huart2, (uint8_t*)"Double press\r\n", 14, 100);
+        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
         current_state = PERM_UNLOCK;
     } else if (event == 'O') { // Open command
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Open command\r\n", 13, 100);
-        HAL_GPIO_WritePin(DOOR_LED_GPIO_Port, DOOR_LED_Pin, GPIO_PIN_SET);
+        HAL_UART_Transmit(&huart2, (uint8_t*)"Open command\r\n", 14, 100);
+        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
         current_state = TEMP_UNLOCK;
         unlock_timer = HAL_GetTick();
     } else if (event == 'C') { // Close command
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Close command\r\n", 14, 100);
-        HAL_GPIO_WritePin(DOOR_LED_GPIO_Port, DOOR_LED_Pin, GPIO_PIN_RESET);
+        HAL_UART_Transmit(&huart2, (uint8_t*)"Close command\r\n", 15, 100);
+        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_RESET);
         current_state = LOCKED;
     }
 }
@@ -181,7 +226,7 @@ void run_state_machine(void) {
             break;
         case TEMP_UNLOCK:
             if (HAL_GetTick() - unlock_timer >= TEMP_UNLOCK_DURATION) {
-                HAL_GPIO_WritePin(DOOR_LED_GPIO_Port, DOOR_LED_Pin, GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_RESET);
                 current_state = LOCKED;
             }
             break;
@@ -191,80 +236,26 @@ void run_state_machine(void) {
     }
 }
 
-uint8_t button_driver_get_event(void) {
-    uint8_t event = button_pressed;
-    button_pressed = 0;
-    return event;
-}
-
-void detect_button_press(void) {
-    if (HAL_GetTick() - b1_tick < 50) {
-        return; // Ignore bounces less than 50ms
-    } else if (HAL_GetTick() - b1_tick > 500) {
-        button_pressed = 1; // single press
-    } else {
-        button_pressed = 2; // double press
-    }
-    b1_tick = HAL_GetTick();
-}
 ```
 
 ### 2.3 Modificación del Main
 
-En `main.c`, ahora incluimos todos los callbacks necesarios:
+En `main.c`, ahora agregamos algunas líneas de código necesarias. asegurese de agregar las lineas en los lugares correctos usando los tags de los comentarios.
 
 ```c
-/* Private includes */
-#include "main.h"
+/* USER CODE BEGIN Includes */
+#include "button.h"
 #include "state_machine.h"
+/* USER CODE END Includes */
 
-/* Private variables */
-static uint32_t heartbeat_tick = 0;
+/* USER CODE BEGIN PV */
 uint8_t rx_byte = 0;
-UART_HandleTypeDef huart2;
+/* USER CODE END PV */
 
-/* Private function prototypes */
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
-void Error_Handler(void);
-
-int main(void)
-{
-    /* MCU Configuration */
-    HAL_Init();
-    SystemClock_Config();
-
-    /* Initialize all configured peripherals */
-    MX_GPIO_Init();
-    MX_USART2_UART_Init();
-
-    /* Initial UART receive request */
-    HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
-
-    /* Infinite loop */
-    while (1) {
-        if (HAL_GetTick() - heartbeat_tick >= 500) {
-            heartbeat_tick = HAL_GetTick();
-            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-        }
-
-        uint8_t button_event = button_driver_get_event();
-        if (button_event != 0) {
-            handle_event(button_event);
-        }
-
-        run_state_machine();
-    }
-}
-
-/* Interrupt Callbacks */
+/* USER CODE BEGIN 0 */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2) {
-        if (rx_byte == 'O' || rx_byte == 'C') {
-            handle_event(rx_byte);
-        }
         HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
     }
 }
@@ -275,76 +266,76 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         detect_button_press();
     }
 }
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART2_UART_Init();
+  /* USER CODE BEGIN 2 */
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+  HAL_UART_Transmit(&huart2, (uint8_t *)"Hello, World!\r\n", 15, 1000);
+  static uint32_t heartbeat_tick = 0;
+  while (1)
+  {
+    if (HAL_GetTick() - heartbeat_tick >= 500) {
+      heartbeat_tick = HAL_GetTick();
+      HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    }
+
+    uint8_t button_event = button_driver_get_event();
+    if (button_event != 0) {
+      handle_event(button_event);
+    }
+
+    if (rx_byte == 'O' || rx_byte == 'C') {
+        handle_event(rx_byte);
+        rx_byte = 0;
+    }
+
+    run_state_machine();
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
+}
+
 ```
 
-### 2.4 Configuración de UART
 
-El archivo `usart.c` generado por CubeMX necesitará algunas modificaciones. Aquí está la implementación completa:
-
-```c
-/* Includes */
-#include "usart.h"
-
-/* USART2 init function */
-void MX_USART2_UART_Init(void)
-{
-    huart2.Instance = USART2;
-    huart2.Init.BaudRate = 115200;
-    huart2.Init.WordLength = UART_WORDLENGTH_8B;
-    huart2.Init.StopBits = UART_STOPBITS_1;
-    huart2.Init.Parity = UART_PARITY_NONE;
-    huart2.Init.Mode = UART_MODE_TX_RX;
-    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-    huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-    huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-    
-    if (HAL_UART_Init(&huart2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    if(uartHandle->Instance == USART2)
-    {
-        /* USART2 clock enable */
-        __HAL_RCC_USART2_CLK_ENABLE();
-        __HAL_RCC_GPIOA_CLK_ENABLE();
-
-        /* USART2 GPIO Configuration */
-        GPIO_InitStruct.Pin = USART_TX_Pin|USART_RX_Pin;
-        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-        GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-        /* USART2 interrupt Init */
-        HAL_NVIC_SetPriority(USART2_IRQn, 0, 0);
-        HAL_NVIC_EnableIRQ(USART2_IRQn);
-    }
-}
-
-void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
-{
-    if(uartHandle->Instance == USART2)
-    {
-        /* Peripheral clock disable */
-        __HAL_RCC_USART2_CLK_DISABLE();
-
-        /* USART2 GPIO Configuration */
-        HAL_GPIO_DeInit(GPIOA, USART_TX_Pin|USART_RX_Pin);
-
-        /* USART2 interrupt Deinit */
-        HAL_NVIC_DisableIRQ(USART2_IRQn);
-    }
-}
-```
-
-### 2.5 Manejadores de Interrupción
+### 2.4 Manejadores de Interrupción
 
 Asegúrate de que estos manejadores estén definidos en el archivo `stm32l4xx_it.c`:
 
