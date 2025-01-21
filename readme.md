@@ -119,8 +119,7 @@ Crea un nuevo archivo `button.h` en `Core/Inc/`:
 
 #include <stdint.h>
 
-uint8_t button_driver_get_event(void);
-void detect_button_press(void);
+uint8_t detect_button_press(void);
 
 #endif // __BUTTON_H_
 
@@ -132,24 +131,19 @@ Crea `button.c` en `Core/Src/`:
 #include "button.h"
 #include "main.h"
 
-volatile uint8_t button_pressed = 0;
 uint32_t b1_tick = 0;
 
-uint8_t button_driver_get_event(void) {
-    uint8_t event = button_pressed;
-    button_pressed = 0;
-    return event;
-}
-
-void detect_button_press(void) {
+uint8_t detect_button_press(void) {
+    uint8_t button_pressed = 0;
     if (HAL_GetTick() - b1_tick < 50) {
-        return; // Ignore bounces less than 50ms
+        // Ignore bounces less than 50ms
     } else if (HAL_GetTick() - b1_tick > 500) {
         button_pressed = 1; // single press
     } else {
         button_pressed = 2; // double press
     }
     b1_tick = HAL_GetTick();
+    return button_pressed;
 }
 
 ```
@@ -263,7 +257,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == B1_Pin) {
-        detect_button_press();
+        b1_byte = detect_button_press();
     }
 }
 /* USER CODE END 0 */
@@ -314,12 +308,12 @@ int main(void)
       HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
     }
 
-    uint8_t button_event = button_driver_get_event();
-    if (button_event != 0) {
-      handle_event(button_event);
+    if (b1_byte != 0) {
+      handle_event(b1_byte);
+      b1_byte = 0;
     }
 
-    if (rx_byte == 'O' || rx_byte == 'C') {
+    if (rx_byte != 0) {
         handle_event(rx_byte);
         rx_byte = 0;
     }
