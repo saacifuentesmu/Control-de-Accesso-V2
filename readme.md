@@ -244,6 +244,7 @@ En `main.c`, ahora agregamos algunas líneas de código necesarias. asegurese de
 
 /* USER CODE BEGIN PV */
 uint8_t rx_byte = 0;
+uint8_t b1_byte = 0;
 /* USER CODE END PV */
 
 /* USER CODE BEGIN 0 */
