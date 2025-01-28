@@ -102,13 +102,11 @@ proyecto/
 │   │   ├── main.h               # Autogenerado por STM32CubeMX
 │   │   ├── stm32l4xx_hal_conf.h # Autogenerado por STM32CubeMX
 │   │   ├── stm32l4xx_it.h       # Autogenerado por STM32CubeMX
-│   │   ├── state_mahine.h
 │   │   └── button.h
 │   └── Src/         # Archivos fuente (.c)
 │       ├── main.c               # Autogenerado por STM32CubeMX
 │       ├── stm32l4xx_hal_msp.c  # Autogenerado por STM32CubeMX
 │       ├── stm32l4xx_it.c       # Autogenerado por STM32CubeMX
-│       ├── state_machine.c
 │       └── button.c
 ├── Drivers/                 # Drivers HAL y CMSIS
 ├── CMakeLists.txt           # To include sources and header directories
@@ -151,95 +149,13 @@ uint8_t detect_button_press(void);
 
 ```
 
-### 2.3 Implementación de la Máquina de Estados
-Crea el archivo `state_machine.h` en `Core/Inc/` donde definas los estados, los eventos, y las funciones de transición.
-```c
-#ifndef STATE_MACHINE_H
-#define STATE_MACHINE_H
-
-#include <stdint.h>
-
-typedef enum {
-    LOCKED,
-    TEMP_UNLOCK,
-    PERM_UNLOCK
-} state_t;
-
-typedef enum {
-    CMD_NONE = 0,
-    CMD_OPEN = 'O',
-    CMD_CLOSE = 'C'
-} command_t;
-
-void handle_event(uint8_t event);
-void run_state_machine(void);
-
-#endif
-
-```
-
-Crea `state_machine.c` en `Core/Src/`:
-
-```c
-#include "state_machine.h"
-#include "main.h"
-
-#define TEMP_UNLOCK_DURATION 5000
-
-static state_t current_state = LOCKED;
-static uint32_t unlock_timer = 0;
-
-extern UART_HandleTypeDef huart2;
-
-void handle_event(uint8_t event) {
-    if (event == 1) { // Single press
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Single press\r\n", 14, 100);
-        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
-        current_state = TEMP_UNLOCK;
-        unlock_timer = HAL_GetTick();
-    } else if (event == 2) { // Double press
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Double press\r\n", 14, 100);
-        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
-        current_state = PERM_UNLOCK;
-    } else if (event == 'O') { // Open command
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Open command\r\n", 14, 100);
-        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_SET);
-        current_state = TEMP_UNLOCK;
-        unlock_timer = HAL_GetTick();
-    } else if (event == 'C') { // Close command
-        HAL_UART_Transmit(&huart2, (uint8_t*)"Close command\r\n", 15, 100);
-        HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_RESET);
-        current_state = LOCKED;
-    }
-}
-
-void run_state_machine(void) {
-    switch (current_state) {
-        case LOCKED:
-            // No periodic action in locked state
-            break;
-        case TEMP_UNLOCK:
-            if (HAL_GetTick() - unlock_timer >= TEMP_UNLOCK_DURATION) {
-                HAL_GPIO_WritePin(DOOR_STAT_GPIO_Port, DOOR_STAT_Pin, GPIO_PIN_RESET);
-                current_state = LOCKED;
-            }
-            break;
-        case PERM_UNLOCK:
-            // No periodic action in permanent unlock state
-            break;
-    }
-}
-
-```
-
-### 2.3 Modificación del Main
+### 2.3 Modificaciones del Main
 
 En `main.c`, ahora agregamos algunas líneas de código necesarias. asegurese de agregar las lineas en los lugares correctos usando los tags de los comentarios.
 
 ```c
 /* USER CODE BEGIN Includes */
 #include "button.h"
-#include "state_machine.h"
 /* USER CODE END Includes */
 
 /* USER CODE BEGIN PV */
@@ -260,6 +176,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     if (GPIO_Pin == B1_Pin) {
         b1_byte = detect_button_press();
     }
+}
+
+void heartbeat_handler(void)
+{
+  static uint32_t heartbeat_tick = 0;
+  if (HAL_GetTick() - heartbeat_tick >= 500) {
+    heartbeat_tick = HAL_GetTick();
+    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+  }
 }
 /* USER CODE END 0 */
 
@@ -301,25 +226,20 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
   HAL_UART_Transmit(&huart2, (uint8_t *)"Hello, World!\r\n", 15, 1000);
-  static uint32_t heartbeat_tick = 0;
-  while (1)
-  {
-    if (HAL_GetTick() - heartbeat_tick >= 500) {
-      heartbeat_tick = HAL_GetTick();
-      HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    }
-
+  while (1) {
     if (b1_byte != 0) {
-      handle_event(b1_byte);
+      if (b1_byte == 1) {
+        HAL_UART_Transmit(&huart2, "1\r\n", 3, 10); // echo received byte
+      } else if (b1_byte == 2) {
+        AL_UART_Transmit(&huart2, "2\r\n", 3, 10); // echo received byte
+      }
       b1_byte = 0;
     }
 
     if (rx_byte != 0) {
-        handle_event(rx_byte);
+        HAL_UART_Transmit(&huart2, &rx_byte, 1, 10); // echo received byte
         rx_byte = 0;
     }
-
-    run_state_machine();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -331,7 +251,6 @@ int main(void)
 
 
 ### 2.4 Manejadores de Interrupción
-
 Asegúrate de que estos manejadores estén definidos en el archivo `stm32l4xx_it.c`:
 
 ```c
