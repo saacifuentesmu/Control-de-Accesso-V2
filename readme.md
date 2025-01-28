@@ -44,7 +44,6 @@ El proyecto incluye:
 1. En la pestaña "Pinout & Configuration":
    * PA5 (LED): Configura como "GPIO_Output" (LD2)
    * PC13 (Button): Configura como "GPIO_EXTI13" (B1)
-   * PA4: Configura como "GPIO_Output" (LED estado puerta)
 
 ![STM32 VS Code gpio](doc/assets/stm32cubemx_gpio.png)
 
