@@ -98,40 +98,30 @@ El proyecto generado tendrá esta estructura:
 ```
 proyecto/
 ├── Core/
-│   ├── Inc/                 # Archivos de cabecera (.h)
-│   │   ├── main.h
+│   ├── Inc/         #Archivos de cabecera (.h)
+│   │   ├── main.h               # Autogenerado por STM32CubeMX
+│   │   ├── stm32l4xx_hal_conf.h # Autogenerado por STM32CubeMX
+│   │   ├── stm32l4xx_it.h       # Autogenerado por STM32CubeMX
 │   │   ├── state_mahine.h
 │   │   └── button.h
-│   └── Src/                 # Archivos fuente (.c)
-│       ├── main.c
+│   └── Src/         # Archivos fuente (.c)
+│       ├── main.c               # Autogenerado por STM32CubeMX
+│       ├── stm32l4xx_hal_msp.c  # Autogenerado por STM32CubeMX
+│       ├── stm32l4xx_it.c       # Autogenerado por STM32CubeMX
 │       ├── state_machine.c
 │       └── button.c
 ├── Drivers/                 # Drivers HAL y CMSIS
+├── CMakeLists.txt           # To include sources and header directories
 └── .project                 # Archivos de configuración IDE
 ```
 
 ### 2.2 Implementación del driver de boton
-
-Crea un nuevo archivo `button.h` en `Core/Inc/`:
-```c
-#ifndef __BUTTON_H_
-#define __BUTTON_H_
-
-#include <stdint.h>
-
-uint8_t detect_button_press(void);
-
-#endif // __BUTTON_H_
-
-```
-
-Crea `button.c` en `Core/Src/`:
-
+Crea `button.c` en `Core/Src/` con la ***definición*** de la funcion de antirebote y detección de soble presión:
 ```c
 #include "button.h"
 #include "main.h"
 
-uint32_t b1_tick = 0;
+uint32_t b1_tick = 0; // para detectar antirebote y doble presion basado en el ultimo evento
 
 uint8_t detect_button_press(void) {
     uint8_t button_pressed = 0;
@@ -148,15 +138,26 @@ uint8_t detect_button_press(void) {
 
 ```
 
+Crea `button.h` en `Core/Inc/` con la ***declaración*** de la función:
+```c
+#ifndef __BUTTON_H_
+#define __BUTTON_H_
+
+#include <stdint.h>
+
+uint8_t detect_button_press(void);
+
+#endif // __BUTTON_H_
+
+```
+
 ### 2.3 Implementación de la Máquina de Estados
-
-Crea un nuevo archivo `state_machine.h` en `Core/Inc/`:
-
+Crea el archivo `state_machine.h` en `Core/Inc/` donde definas los estados, los eventos, y las funciones de transición.
 ```c
 #ifndef STATE_MACHINE_H
 #define STATE_MACHINE_H
 
-#include "main.h"
+#include <stdint.h>
 
 typedef enum {
     LOCKED,
@@ -172,7 +173,6 @@ typedef enum {
 
 void handle_event(uint8_t event);
 void run_state_machine(void);
-uint8_t button_driver_get_event(void);
 
 #endif
 
@@ -335,16 +335,36 @@ int main(void)
 Asegúrate de que estos manejadores estén definidos en el archivo `stm32l4xx_it.c`:
 
 ```c
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
 void USART2_IRQHandler(void)
 {
-    HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 0 */
+
+  /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
 }
 
+/**
+  * @brief This function handles EXTI line[15:10] interrupts.
+  */
 void EXTI15_10_IRQHandler(void)
 {
-    HAL_GPIO_EXTI_IRQHandler(B1_Pin);
+  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
+
+  /* USER CODE END EXTI15_10_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(B1_Pin);
+  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
+
+  /* USER CODE END EXTI15_10_IRQn 1 */
 }
 ```
+
+Estos son los puntos de entrada de las interrupciones de los periféricos. Luego el HAL llamará los callback que vamos a implementar en la aplicación.
 
 ## Sección 3: Diferencias Clave con la Implementación Manual
 
